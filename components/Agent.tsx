@@ -5,7 +5,8 @@ import React, { useEffect, useState } from 'react'
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { vapi } from "@/lib/vapi.sdk";
- 
+import { interviewer } from "@/constants";
+import { createFeedback } from "@/lib/actions/general.action";
 
 enum CallStatus {
     INACTIVE = 'INACTIVE',
@@ -19,15 +20,6 @@ interface SavedMessage {
     content: string;
 }
 
-interface AgentProps {
-  userName: string;
-  userId?: string;
-  interviewId?: string;
-  feedbackId?: string;
-  type: 'generate' | 'interview';
-  questions?: string[];
-}
-
 const Agent = ({ userName, userId, type, interviewId, feedbackId, questions }: AgentProps) => {
 
   const router = useRouter();
@@ -39,7 +31,7 @@ const Agent = ({ userName, userId, type, interviewId, feedbackId, questions }: A
     const onCallStart = () => setCallStatus(CallStatus.ACTIVE);
     const onCallEnd = () => setCallStatus(CallStatus.FINISHED);
 
-    const onMessage = (message: any) => {
+    const onMessage = (message: Message) => {
         if(message.type === 'transcript' && message.transcriptType === 'final'){
             const newMessage = { role: message.role, content: message.transcript };
 
@@ -71,11 +63,29 @@ const Agent = ({ userName, userId, type, interviewId, feedbackId, questions }: A
 
   useEffect(() => {
 
+    const handleGenerateFeedback = async (messages: SavedMessage[]) => {
+      console.log("Generate feedback here");
+
+      // TODO: Create a server action that generates feedback
+      const { success, feedbackId: id } = await createFeedback({
+          interviewId: interviewId!,
+          userId: userId!,
+          transcript: messages
+      })
+
+      if(success && id){
+          router.push(`/interview/${interviewId}/feedback`);
+      } else {
+          console.log("Error saving feedback");
+          router.push("/");
+      }
+    }
+
     if(callStatus === CallStatus.FINISHED){
         if(type === "generate"){
             router.push("/");
         } else{
-            router.push("/");
+            handleGenerateFeedback(messages);
         }
     }
 
@@ -84,21 +94,12 @@ const Agent = ({ userName, userId, type, interviewId, feedbackId, questions }: A
   const handleCall = async () => {
     setCallStatus(CallStatus.CONNECTING);
 
-    const workflowId = process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID;
-    const webToken = process.env.NEXT_PUBLIC_VAPI_WEB_TOKEN;
-
-    if (!workflowId || !webToken) {
-      console.error('Missing VAPI env: require both NEXT_PUBLIC_VAPI_WEB_TOKEN and NEXT_PUBLIC_VAPI_WORKFLOW_ID');
-      setCallStatus(CallStatus.INACTIVE);
-      return;
-    }
-
     if (type === "generate") {
       await vapi.start(
         undefined,
         undefined,
         undefined,
-        workflowId!,
+        process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!,
         {
           variableValues: {
             username: userName,
@@ -114,19 +115,11 @@ const Agent = ({ userName, userId, type, interviewId, feedbackId, questions }: A
           .join("\n");
       }
 
-      await vapi.start(
-        undefined,
-        undefined,
-        undefined,
-        workflowId!,
-        {
-          variableValues: {
-            questions: formattedQuestions,
-            username: userName,
-            userid: userId,
-          },
-        }
-      );
+      await vapi.start(interviewer, {
+        variableValues: {
+          questions: formattedQuestions,
+        },
+      });
     }
   };
 
