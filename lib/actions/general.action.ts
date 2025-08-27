@@ -2,12 +2,17 @@
 
 import { generateObject } from "ai";
 import { google } from "@ai-sdk/google";
-
 import { db } from "@/firebase/admin";
 import { feedbackSchema } from "@/constants";
 
 export async function createFeedback(params: CreateFeedbackParams) {
   const { interviewId, userId, transcript, feedbackId } = params;
+
+  // Guard clause for required params
+  if (!interviewId || !userId) {
+    console.error("Missing interviewId or userId", { interviewId, userId });
+    return { success: false };
+  }
 
   try {
     const formattedTranscript = transcript
@@ -16,11 +21,24 @@ export async function createFeedback(params: CreateFeedbackParams) {
           `- ${sentence.role}: ${sentence.content}\n`
       )
       .join("");
+    /* console.log("Calling generateObject with schema:", feedbackSchema);
+      console.log("Prompt:", formattedTranscript);
+      console.log("System:", "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories");
+      console.log("prompt:", `
+        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
+        Transcript:
+        ${formattedTranscript}
 
+        Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
+        - **Communication Skills**: Clarity, articulation, structured responses.
+        - **Technical Knowledge**: Understanding of key concepts for the role.
+        - **Problem Solving**: Ability to analyze problems and propose solutions.
+        - **Cultural Fit**: Alignment with company values and job role.
+        - **Confidence and Clarity**: Confidence in responses, engagement, and clarity.
+      `);*/
+    // Prompt categories must match your feedbackSchema exactly!
     const { object } = await generateObject({
-      model: google("gemini-2.0-flash-001", {
-        structuredOutputs: false,
-      }),
+      model: google("gemini-2.0-flash-001"),
       schema: feedbackSchema,
       prompt: `
         You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
@@ -30,13 +48,21 @@ export async function createFeedback(params: CreateFeedbackParams) {
         Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
         - **Communication Skills**: Clarity, articulation, structured responses.
         - **Technical Knowledge**: Understanding of key concepts for the role.
-        - **Problem-Solving**: Ability to analyze problems and propose solutions.
-        - **Cultural & Role Fit**: Alignment with company values and job role.
-        - **Confidence & Clarity**: Confidence in responses, engagement, and clarity.
+        - **Problem Solving**: Ability to analyze problems and propose solutions.
+        - **Cultural Fit**: Alignment with company values and job role.
+        - **Confidence and Clarity**: Confidence in responses, engagement, and clarity.
         `,
       system:
         "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories",
     });
+
+    // Log the AI output for debugging
+    //console.log("AI feedback object:", object);
+
+    if (!object) {
+     // console.error("AI did not return a valid feedback object");
+      return { success: false };
+    }
 
     const feedback = {
       interviewId: interviewId,
@@ -59,9 +85,14 @@ export async function createFeedback(params: CreateFeedbackParams) {
 
     await feedbackRef.set(feedback);
 
+    console.log("Feedback saved successfully:", feedbackRef.id);
+
     return { success: true, feedbackId: feedbackRef.id };
   } catch (error) {
-    console.error("Error saving feedback:", error);
+    //console.error("Error saving feedback:", error);
+    if (error instanceof Error) {
+      //console.error(error.stack);
+    }
     return { success: false };
   }
 }
